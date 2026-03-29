@@ -15,10 +15,11 @@ router.get('/', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  const { title, date, time = '', notes = '' } = req.body;
+  const { title, date, notes = '' } = req.body;
+  const time = String(req.body.time || '').trim();
 
-  if (!title || !date) {
-    return res.status(400).json({ message: 'title and date are required' });
+  if (!title || !date || !time) {
+    return res.status(400).json({ message: 'title, date and time are required' });
   }
 
   const reminder = await Reminder.create({
@@ -34,11 +35,15 @@ router.post('/', async (req, res) => {
 });
 
 router.patch('/:reminderId', async (req, res) => {
+  if (Object.prototype.hasOwnProperty.call(req.body, 'time') && !String(req.body.time || '').trim()) {
+    return res.status(400).json({ message: 'time is required for reminders' });
+  }
+
   const updates = {
     title: req.body.title,
     notes: req.body.notes,
     date: req.body.date,
-    time: req.body.time,
+    time: Object.prototype.hasOwnProperty.call(req.body, 'time') ? String(req.body.time).trim() : undefined,
     done: req.body.done,
   };
 

@@ -13,7 +13,7 @@ const sendBrevoMail = async ({ to, subject, htmlContent }) => {
   const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
   sendSmtpEmail.subject = subject;
   sendSmtpEmail.htmlContent = htmlContent;
-  sendSmtpEmail.sender = { email: senderEmail, name: 'Dodaiy' };
+  sendSmtpEmail.sender = { email: senderEmail, name: 'DoDaily' };
   sendSmtpEmail.to = [{ email: to }];
   await apiInstance.sendTransacEmail(sendSmtpEmail);
 };

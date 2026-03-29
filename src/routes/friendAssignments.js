@@ -39,9 +39,10 @@ router.post('/task', async (req, res) => {
     return res.status(403).json({ message: 'You can only assign planner tasks to friends' });
   }
 
-  const { title, notes = '', date, time = '' } = req.body;
-  if (!title || !date) {
-    return res.status(400).json({ message: 'title and date are required' });
+  const { title, notes = '', date } = req.body;
+  const time = String(req.body.time || '').trim();
+  if (!title || !date || !time) {
+    return res.status(400).json({ message: 'title, date and time are required' });
   }
 
   const assignment = await AssignmentRequest.create({

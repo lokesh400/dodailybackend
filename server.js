@@ -78,6 +78,11 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+app.get('/auth/user/verify/user/:token', (req, res) => {
+  const token = encodeURIComponent(req.params.token);
+  return res.redirect(302, `/api/auth/user/verify/user/${token}`);
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/reminders', reminderRoutes);

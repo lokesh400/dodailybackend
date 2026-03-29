@@ -70,11 +70,11 @@ router.post('/request', async (req, res) => {
     try {
       await sendBrevoMail({
         to: targetUser.email,
-        subject: 'New Friend Request on Dodaiy',
-        htmlContent: `<div style="font-family:sans-serif;text-align:center;padding:2em;">
+          subject: 'New Friend Request on DoDaily',
+          htmlContent: `<div style="font-family:sans-serif;text-align:center;padding:2em;">
           <h2>New Friend Request</h2>
-          <p>${me.displayName} (@${me.username}) sent you a friend request on Dodaiy.</p>
-          <p>Open Dodaiy to approve or reject the request.</p>
+          <p>${me.displayName} (@${me.username}) sent you a friend request on DoDaily.</p>
+          <p>Open DoDaily to approve or reject the request.</p>
         </div>`
       });
     } catch (e) { /* ignore email errors */ }
@@ -159,10 +159,10 @@ router.patch('/requests/:requestId/respond', async (req, res) => {
       try {
         await sendBrevoMail({
           to: fromUser.email,
-          subject: 'Friend Request Accepted on Dodaiy',
+          subject: 'Friend Request Accepted on DoDaily',
           htmlContent: `<div style="font-family:sans-serif;text-align:center;padding:2em;">
             <h2>Friend Request Accepted</h2>
-            <p>${toUser.displayName} (@${toUser.username}) accepted your friend request on Dodaiy.</p>
+            <p>${toUser.displayName} (@${toUser.username}) accepted your friend request on DoDaily.</p>
             <p>You are now friends!</p>
           </div>`
         });
