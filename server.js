@@ -15,6 +15,7 @@ const taskRoutes = require('./src/routes/tasks');
 const reminderRoutes = require('./src/routes/reminders');
 const friendsRoutes = require('./src/routes/friends');
 const friendAssignmentsRoutes = require('./src/routes/friendAssignments');
+const legalRoutes = require('./src/routes/legal');
 
 const app = express();
 
@@ -85,6 +86,15 @@ app.get('/auth/user/verify/user/:token', (req, res) => {
   return res.redirect(302, `/api/auth/user/verify/user/${token}`);
 });
 
+app.get('/privacy-policy', (req, res) => {
+  return res.redirect(302, '/privacy-/policy');
+});
+
+app.get('/account-delete', (req, res) => {
+  return res.redirect(302, '/account/manage');
+});
+
+app.use(legalRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/reminders', reminderRoutes);
