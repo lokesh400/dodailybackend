@@ -1,9 +1,10 @@
-const express = require('express');
 
+const express = require('express');
 const isAuthenticated = require('../middleware/isAuthenticated');
 const User = require('../models/User');
 const FriendRequest = require('../models/FriendRequest');
 const AssignmentRequest = require('../models/AssignmentRequest');
+const sendBrevoMail = require('../utils/sendBrevoMail');
 
 const router = express.Router();
 
@@ -64,6 +65,20 @@ router.post('/request', async (req, res) => {
     toUser: targetUser._id,
   });
 
+  // Send email notification to target user if they have email
+  if (targetUser.email) {
+    try {
+      await sendBrevoMail({
+        to: targetUser.email,
+        subject: 'New Friend Request on Dodaiy',
+        htmlContent: `<div style="font-family:sans-serif;text-align:center;padding:2em;">
+          <h2>New Friend Request</h2>
+          <p>${me.displayName} (@${me.username}) sent you a friend request on Dodaiy.</p>
+          <p>Open Dodaiy to approve or reject the request.</p>
+        </div>`
+      });
+    } catch (e) { /* ignore email errors */ }
+  }
   return res.status(201).json(friendRequest);
 });
 
@@ -136,6 +151,23 @@ router.patch('/requests/:requestId/respond', async (req, res) => {
 
     await User.findByIdAndUpdate(friendRequest.fromUser, { $addToSet: { friends: friendRequest.toUser } });
     await User.findByIdAndUpdate(friendRequest.toUser, { $addToSet: { friends: friendRequest.fromUser } });
+
+    // Notify the requester by email if they have email
+    const fromUser = await User.findById(friendRequest.fromUser);
+    const toUser = await User.findById(friendRequest.toUser);
+    if (fromUser.email) {
+      try {
+        await sendBrevoMail({
+          to: fromUser.email,
+          subject: 'Friend Request Accepted on Dodaiy',
+          htmlContent: `<div style="font-family:sans-serif;text-align:center;padding:2em;">
+            <h2>Friend Request Accepted</h2>
+            <p>${toUser.displayName} (@${toUser.username}) accepted your friend request on Dodaiy.</p>
+            <p>You are now friends!</p>
+          </div>`
+        });
+      } catch (e) { /* ignore email errors */ }
+    }
   } else {
     friendRequest.status = 'rejected';
     await friendRequest.save();

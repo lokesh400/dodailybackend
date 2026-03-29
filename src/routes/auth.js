@@ -1,21 +1,23 @@
-
-const express = require('express');
-const passport = require('passport');
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-const sendBrevoMail = require('../utils/sendBrevoMail');
+const express = require("express");
+const passport = require("passport");
+const jwt = require("jsonwebtoken");
+const User = require("../models/User");
+const sendBrevoMail = require("../utils/sendBrevoMail");
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'verify-secret';
-const CLIENT_VERIFY_URL = 'https://dodaiy.onrender.com/auth/user/verify/user';
+const JWT_SECRET = process.env.JWT_SECRET || "verify-secret";
+const CLIENT_VERIFY_URL =
+  "https://dodaily.onrender.com/api/auth/user/verify/user";
+const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || "dodaily.sid";
 // Send verification email
-router.post('/send-verification', async (req, res) => {
-  if (!req.user) return res.status(401).json({ message: 'Not authenticated' });
+router.post("/send-verification", async (req, res) => {
+  if (!req.user) return res.status(401).json({ message: "Not authenticated" });
   const user = await User.findById(req.user._id);
-  if (user.verified) return res.status(400).json({ message: 'Already verified' });
-  if (!user.email) return res.status(400).json({ message: 'No email found' });
+  if (user.verified)
+    return res.status(400).json({ message: "Already verified" });
+  if (!user.email) return res.status(400).json({ message: "No email found" });
   const email = user.email;
-  const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '1d' });
+  const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "1d" });
   const verifyUrl = `${CLIENT_VERIFY_URL}/${token}`;
   const htmlContent = `<div style="font-family:sans-serif;text-align:center;padding:2em;">
     <h2>Verify your email for Dodaiy</h2>
@@ -24,21 +26,25 @@ router.post('/send-verification', async (req, res) => {
     <p style="margin-top:2em;font-size:12px;color:#888;">If you did not request this, you can ignore this email.</p>
   </div>`;
   try {
-    await sendBrevoMail({ to: email, subject: 'Verify your email for Dodaiy', htmlContent });
-    res.json({ message: 'Verification email sent' });
+    await sendBrevoMail({
+      to: email,
+      subject: "Verify your email for Dodaiy",
+      htmlContent,
+    });
+    res.json({ message: "Verification email sent" });
   } catch (e) {
-    res.status(500).json({ message: 'Failed to send email', error: e.message });
+    res.status(500).json({ message: "Failed to send email", error: e.message });
   }
 });
 
 // Verify email by token
-router.get('/user/verify/user/:token', async (req, res) => {
+router.get("/user/verify/user/:token", async (req, res) => {
   try {
     const { token } = req.params;
     const payload = jwt.verify(token, JWT_SECRET);
     const user = await User.findById(payload.id);
-    if (!user) return res.status(404).send('<h2>User not found</h2>');
-    if (user.verified) return res.send('<h2>Email already verified!</h2>');
+    if (!user) return res.status(404).send("<h2>User not found</h2>");
+    if (user.verified) return res.send("<h2>Email already verified!</h2>");
     user.verified = true;
     await user.save();
     // Beautiful confirmation page
@@ -46,60 +52,63 @@ router.get('/user/verify/user/:token', async (req, res) => {
       <div style="font-family:sans-serif;text-align:center;padding:3em;">
         <h1 style="color:#0d7a76;">🎉 Email Verified!</h1>
         <p style="font-size:18px;">Thank you for verifying your email.<br/>You can now use all features of Dodaiy.</p>
-        <a href="https://dodaiy.onrender.com" style="display:inline-block;margin-top:2em;padding:1em 2em;background:#0d7a76;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;">Go to Dodaiy</a>
       </div>
     `);
   } catch (e) {
-    return res.status(400).send('<h2>Invalid or expired verification link.</h2>');
+    return res
+      .status(400)
+      .send("<h2>Invalid or expired verification link.</h2>");
   }
 });
 
-router.post('/register', async (req, res) => {
+router.post("/register", async (req, res) => {
   try {
     const { username, password, displayName } = req.body;
 
     if (!username || !password || !displayName) {
       return res.status(400).json({
-        message: 'username, password and displayName are required',
+        message: "username, password and displayName are required",
       });
     }
 
     const registeredUser = await User.register(
       new User({ username, displayName }),
-      password
+      password,
     );
 
     req.login(registeredUser, (err) => {
       if (err) {
-        return res.status(500).json({ message: 'Login after signup failed' });
+        return res.status(500).json({ message: "Login after signup failed" });
       }
 
       return res.status(201).json({
         id: registeredUser._id,
         username: registeredUser.username,
         displayName: registeredUser.displayName,
+        email: registeredUser.email || "",
+        verified: registeredUser.verified,
       });
     });
   } catch (error) {
-    if (error.name === 'UserExistsError') {
-      return res.status(409).json({ message: 'Username already exists' });
+    if (error.name === "UserExistsError") {
+      return res.status(409).json({ message: "Username already exists" });
     }
 
     return res.status(500).json({
-      message: 'Could not register user',
+      message: "Could not register user",
       error: error.message,
     });
   }
 });
 
-router.post('/login', (req, res, next) => {
-  passport.authenticate('local', (error, user) => {
+router.post("/login", (req, res, next) => {
+  passport.authenticate("local", (error, user) => {
     if (error) {
       return next(error);
     }
 
     if (!user) {
-      return res.status(401).json({ message: 'Invalid username or password' });
+      return res.status(401).json({ message: "Invalid username or password" });
     }
 
     return req.login(user, (loginError) => {
@@ -111,12 +120,14 @@ router.post('/login', (req, res, next) => {
         id: user._id,
         username: user.username,
         displayName: user.displayName,
+        email: user.email || "",
+        verified: user.verified,
       });
     });
   })(req, res, next);
 });
 
-router.post('/logout', (req, res, next) => {
+router.post("/logout", (req, res, next) => {
   req.logout((error) => {
     if (error) {
       return next(error);
@@ -127,33 +138,38 @@ router.post('/logout', (req, res, next) => {
         return next(sessionError);
       }
 
-      return res.json({ message: 'Logged out successfully' });
+      res.clearCookie(SESSION_COOKIE_NAME);
+      return res.json({ message: "Logged out successfully" });
     });
   });
 });
 
-router.get('/me', (req, res) => {
+router.get("/me", (req, res) => {
   if (!req.isAuthenticated || !req.isAuthenticated()) {
-    return res.status(401).json({ message: 'Not logged in' });
+    return res.status(401).json({ message: "Not logged in" });
   }
 
   return res.json({
     id: req.user._id,
     username: req.user.username,
     displayName: req.user.displayName,
+    email: req.user.email || "",
+    verified: req.user.verified,
   });
 });
 
-router.patch('/me', async (req, res) => {
+router.patch("/me", async (req, res) => {
   if (!req.isAuthenticated || !req.isAuthenticated()) {
-    return res.status(401).json({ message: 'Not logged in' });
+    return res.status(401).json({ message: "Not logged in" });
   }
 
-  const displayName = (req.body.displayName || '').trim();
-  const email = (req.body.email || '').trim();
+  const displayName = (req.body.displayName || "").trim();
+  const email = (req.body.email || "").trim();
 
   if (!displayName && !email) {
-    return res.status(400).json({ message: 'displayName or email is required' });
+    return res
+      .status(400)
+      .json({ message: "displayName or email is required" });
   }
   if (displayName) req.user.displayName = displayName;
   if (email) {

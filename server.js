@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const express = require('express');
 const session = require('express-session');
+const connectMongo = require('connect-mongo');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const passport = require('passport');
@@ -19,10 +20,32 @@ const PORT = process.env.PORT || 4000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/daily-planner';
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:8081';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'change-me-in-production';
+const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || 'dodaily.sid';
+const MongoStore = connectMongo.default || connectMongo.MongoStore || connectMongo;
+const allowedOrigins = CLIENT_ORIGIN.split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const sessionStore =
+  typeof MongoStore.create === 'function'
+    ? MongoStore.create({
+        mongoUrl: MONGO_URI,
+        collectionName: 'sessions',
+      })
+    : new MongoStore({
+        mongoUrl: MONGO_URI,
+        collectionName: 'sessions',
+      });
 
 app.use(
   cors({
-    origin: 8081,
+    origin(origin, callback) {
+      // React Native requests often arrive without a browser Origin header.
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error('Origin not allowed by CORS'));
+    },
     credentials: true,
   })
 );
@@ -30,11 +53,14 @@ app.use(
 app.use(express.json());
 app.use(
   session({
+    name: SESSION_COOKIE_NAME,
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
+    store: sessionStore,
     cookie: {
       httpOnly: true,
+      secure: false,
       sameSite: 'lax',
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
