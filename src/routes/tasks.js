@@ -8,12 +8,14 @@ const router = express.Router();
 router.use(isAuthenticated);
 
 router.get('/', async (req, res) => {
-  const tasks = await Task.find({ owner: req.user._id }).sort({ date: 1, createdAt: 1 });
+  const tasks = await Task.find({ owner: req.user._id })
+    .populate('createdBy', 'username displayName')
+    .sort({ date: 1, createdAt: 1 });
   return res.json(tasks);
 });
 
 router.post('/', async (req, res) => {
-  const { title, notes = '', date } = req.body;
+  const { title, notes = '', date, time = '' } = req.body;
   const requestedStatus = req.body.status;
 
   const status = ['pending', 'partial', 'completed'].includes(requestedStatus)
@@ -30,9 +32,11 @@ router.post('/', async (req, res) => {
     title,
     notes,
     date,
+    time,
     status,
     completed: status === 'completed',
     owner: req.user._id,
+    createdBy: req.user._id,
   });
 
   return res.status(201).json(task);
@@ -43,6 +47,7 @@ router.patch('/:taskId', async (req, res) => {
     title: req.body.title,
     notes: req.body.notes,
     date: req.body.date,
+    time: req.body.time,
     status: req.body.status,
     completed: req.body.completed,
   };
@@ -79,11 +84,20 @@ router.patch('/:taskId', async (req, res) => {
 });
 
 router.delete('/:taskId', async (req, res) => {
-  const task = await Task.findOneAndDelete({ _id: req.params.taskId, owner: req.user._id });
+  const task = await Task.findOne({ _id: req.params.taskId, owner: req.user._id });
 
   if (!task) {
     return res.status(404).json({ message: 'Task not found' });
   }
+
+  const status = task.status || (task.completed ? 'completed' : 'pending');
+  if (status === 'partial' || status === 'completed') {
+    return res.status(400).json({
+      message: 'You cannot delete tasks that are partially completed or completed',
+    });
+  }
+
+  await task.deleteOne();
 
   return res.json({ message: 'Task deleted', id: task._id });
 });

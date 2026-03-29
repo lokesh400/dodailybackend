@@ -1,9 +1,58 @@
+
 const express = require('express');
 const passport = require('passport');
-
+const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const sendBrevoMail = require('../utils/sendBrevoMail');
 
 const router = express.Router();
+const JWT_SECRET = process.env.JWT_SECRET || 'verify-secret';
+const CLIENT_VERIFY_URL = 'https://dodaiy.onrender.com/auth/user/verify/user';
+// Send verification email
+router.post('/send-verification', async (req, res) => {
+  if (!req.user) return res.status(401).json({ message: 'Not authenticated' });
+  const user = await User.findById(req.user._id);
+  if (user.verified) return res.status(400).json({ message: 'Already verified' });
+  if (!user.email) return res.status(400).json({ message: 'No email found' });
+  const email = user.email;
+  const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '1d' });
+  const verifyUrl = `${CLIENT_VERIFY_URL}/${token}`;
+  const htmlContent = `<div style="font-family:sans-serif;text-align:center;padding:2em;">
+    <h2>Verify your email for Dodaiy</h2>
+    <p>Click the button below to verify your email address and unlock all features.</p>
+    <a href="${verifyUrl}" style="display:inline-block;padding:1em 2em;background:#0d7a76;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;">Verify Email</a>
+    <p style="margin-top:2em;font-size:12px;color:#888;">If you did not request this, you can ignore this email.</p>
+  </div>`;
+  try {
+    await sendBrevoMail({ to: email, subject: 'Verify your email for Dodaiy', htmlContent });
+    res.json({ message: 'Verification email sent' });
+  } catch (e) {
+    res.status(500).json({ message: 'Failed to send email', error: e.message });
+  }
+});
+
+// Verify email by token
+router.get('/user/verify/user/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const payload = jwt.verify(token, JWT_SECRET);
+    const user = await User.findById(payload.id);
+    if (!user) return res.status(404).send('<h2>User not found</h2>');
+    if (user.verified) return res.send('<h2>Email already verified!</h2>');
+    user.verified = true;
+    await user.save();
+    // Beautiful confirmation page
+    return res.send(`
+      <div style="font-family:sans-serif;text-align:center;padding:3em;">
+        <h1 style="color:#0d7a76;">🎉 Email Verified!</h1>
+        <p style="font-size:18px;">Thank you for verifying your email.<br/>You can now use all features of Dodaiy.</p>
+        <a href="https://dodaiy.onrender.com" style="display:inline-block;margin-top:2em;padding:1em 2em;background:#0d7a76;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;">Go to Dodaiy</a>
+      </div>
+    `);
+  } catch (e) {
+    return res.status(400).send('<h2>Invalid or expired verification link.</h2>');
+  }
+});
 
 router.post('/register', async (req, res) => {
   try {
@@ -92,6 +141,33 @@ router.get('/me', (req, res) => {
     id: req.user._id,
     username: req.user.username,
     displayName: req.user.displayName,
+  });
+});
+
+router.patch('/me', async (req, res) => {
+  if (!req.isAuthenticated || !req.isAuthenticated()) {
+    return res.status(401).json({ message: 'Not logged in' });
+  }
+
+  const displayName = (req.body.displayName || '').trim();
+  const email = (req.body.email || '').trim();
+
+  if (!displayName && !email) {
+    return res.status(400).json({ message: 'displayName or email is required' });
+  }
+  if (displayName) req.user.displayName = displayName;
+  if (email) {
+    req.user.email = email;
+    req.user.verified = false; // Reset verification if email changes
+  }
+  await req.user.save();
+
+  return res.json({
+    id: req.user._id,
+    username: req.user.username,
+    displayName: req.user.displayName,
+    email: req.user.email,
+    verified: req.user.verified,
   });
 });
 

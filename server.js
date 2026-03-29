@@ -6,10 +6,12 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const passport = require('passport');
 
-const User = require('./models/User');
-const authRoutes = require('./routes/auth');
-const taskRoutes = require('./routes/tasks');
-const reminderRoutes = require('./routes/reminders');
+const User = require('./src/models/User');
+const authRoutes = require('./src/routes/auth');
+const taskRoutes = require('./src/routes/tasks');
+const reminderRoutes = require('./src/routes/reminders');
+const friendsRoutes = require('./src/routes/friends');
+const friendAssignmentsRoutes = require('./src/routes/friendAssignments');
 
 const app = express();
 
@@ -20,7 +22,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET || 'change-me-in-production';
 
 app.use(
   cors({
-    origin: CLIENT_ORIGIN,
+    origin: 8081,
     credentials: true,
   })
 );
@@ -53,6 +55,8 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/reminders', reminderRoutes);
+app.use('/api/friends', friendsRoutes);
+app.use('/api/friend-assignments', friendAssignmentsRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err);

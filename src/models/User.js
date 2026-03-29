@@ -8,6 +8,22 @@ const userSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    email: {
+      type: String,
+      required: false,
+      trim: true,
+      lowercase: true,
+    },
+    verified: {
+      type: Boolean,
+      default: false,
+    },
+    friends: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
   },
   {
     timestamps: true,

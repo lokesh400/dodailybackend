@@ -8,7 +8,9 @@ const router = express.Router();
 router.use(isAuthenticated);
 
 router.get('/', async (req, res) => {
-  const reminders = await Reminder.find({ owner: req.user._id }).sort({ date: 1, time: 1, createdAt: 1 });
+  const reminders = await Reminder.find({ owner: req.user._id })
+    .populate('createdBy', 'username displayName')
+    .sort({ date: 1, time: 1, createdAt: 1 });
   return res.json(reminders);
 });
 
@@ -25,6 +27,7 @@ router.post('/', async (req, res) => {
     time,
     notes,
     owner: req.user._id,
+    createdBy: req.user._id,
   });
 
   return res.status(201).json(reminder);
