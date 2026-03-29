@@ -1,6 +1,7 @@
 
 const express = require('express');
 const isAuthenticated = require('../middleware/isAuthenticated');
+const loadCurrentUser = require('../middleware/loadCurrentUser');
 const User = require('../models/User');
 const FriendRequest = require('../models/FriendRequest');
 const AssignmentRequest = require('../models/AssignmentRequest');
@@ -10,17 +11,18 @@ const router = express.Router();
 
 
 router.use(isAuthenticated);
+router.use(loadCurrentUser);
 
 // Middleware: block if not verified
 router.use((req, res, next) => {
-  if (!req.user?.verified) {
+  if (!res.locals.currentUser?.verified) {
     return res.status(403).json({ message: 'Please verify your mail first' });
   }
   next();
 });
 
 router.get('/', async (req, res) => {
-  const me = await User.findById(req.user._id).populate('friends', 'username displayName');
+  const me = await res.locals.currentUser.populate('friends', 'username displayName');
   return res.json({
     friends: me.friends || [],
   });
@@ -38,11 +40,12 @@ router.post('/request', async (req, res) => {
     return res.status(404).json({ message: 'User not found' });
   }
 
-  if (String(targetUser._id) === String(req.user._id)) {
+  const me = res.locals.currentUser;
+
+  if (String(targetUser._id) === String(me._id)) {
     return res.status(400).json({ message: 'You cannot add yourself' });
   }
 
-  const me = await User.findById(req.user._id);
   const alreadyFriends = (me.friends || []).some((friendId) => String(friendId) === String(targetUser._id));
   if (alreadyFriends) {
     return res.status(409).json({ message: 'Already friends' });
@@ -51,8 +54,8 @@ router.post('/request', async (req, res) => {
   const duplicatePending = await FriendRequest.findOne({
     status: 'pending',
     $or: [
-      { fromUser: req.user._id, toUser: targetUser._id },
-      { fromUser: targetUser._id, toUser: req.user._id },
+      { fromUser: me._id, toUser: targetUser._id },
+      { fromUser: targetUser._id, toUser: me._id },
     ],
   });
 
@@ -61,7 +64,7 @@ router.post('/request', async (req, res) => {
   }
 
   const friendRequest = await FriendRequest.create({
-    fromUser: req.user._id,
+    fromUser: me._id,
     toUser: targetUser._id,
   });
 
@@ -90,10 +93,10 @@ router.get('/requests', async (req, res) => {
   }
 
   const incomingQuery = {
-    toUser: req.user._id,
+    toUser: res.locals.currentUser._id,
   };
   const outgoingQuery = {
-    fromUser: req.user._id,
+    fromUser: res.locals.currentUser._id,
   };
 
   if (requestedStatus !== 'all') {
@@ -118,8 +121,8 @@ router.get('/requests', async (req, res) => {
 
 router.get('/badges', async (req, res) => {
   const [pendingFriendRequests, pendingAssignmentApprovals] = await Promise.all([
-    FriendRequest.countDocuments({ toUser: req.user._id, status: 'pending' }),
-    AssignmentRequest.countDocuments({ toUser: req.user._id, status: 'pending' }),
+    FriendRequest.countDocuments({ toUser: res.locals.currentUser._id, status: 'pending' }),
+    AssignmentRequest.countDocuments({ toUser: res.locals.currentUser._id, status: 'pending' }),
   ]);
 
   return res.json({
@@ -137,7 +140,7 @@ router.patch('/requests/:requestId/respond', async (req, res) => {
 
   const friendRequest = await FriendRequest.findOne({
     _id: req.params.requestId,
-    toUser: req.user._id,
+    toUser: res.locals.currentUser._id,
     status: 'pending',
   });
 

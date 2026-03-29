@@ -1,6 +1,7 @@
 const express = require('express');
 
 const isAuthenticated = require('../middleware/isAuthenticated');
+const loadCurrentUser = require('../middleware/loadCurrentUser');
 const User = require('../models/User');
 const Task = require('../models/Task');
 const Reminder = require('../models/Reminder');
@@ -9,10 +10,10 @@ const AssignmentRequest = require('../models/AssignmentRequest');
 const router = express.Router();
 
 router.use(isAuthenticated);
+router.use(loadCurrentUser);
 
-async function ensureFriends(userId, friendId) {
-  const me = await User.findById(userId);
-  return (me.friends || []).some((id) => String(id) === String(friendId));
+function ensureFriends(user, friendId) {
+  return (user.friends || []).some((id) => String(id) === String(friendId));
 }
 
 async function resolveTargetUser({ toUserId, toUsername }) {
@@ -29,12 +30,13 @@ async function resolveTargetUser({ toUserId, toUsername }) {
 }
 
 router.post('/task', async (req, res) => {
+  const me = res.locals.currentUser;
   const targetUser = await resolveTargetUser(req.body);
   if (!targetUser) {
     return res.status(404).json({ message: 'Target friend not found' });
   }
 
-  const isFriend = await ensureFriends(req.user._id, targetUser._id);
+  const isFriend = ensureFriends(me, targetUser._id);
   if (!isFriend) {
     return res.status(403).json({ message: 'You can only assign planner tasks to friends' });
   }
@@ -46,7 +48,7 @@ router.post('/task', async (req, res) => {
   }
 
   const assignment = await AssignmentRequest.create({
-    fromUser: req.user._id,
+    fromUser: me._id,
     toUser: targetUser._id,
     itemType: 'task',
     title,
@@ -59,23 +61,25 @@ router.post('/task', async (req, res) => {
 });
 
 router.post('/reminder', async (req, res) => {
+  const me = res.locals.currentUser;
   const targetUser = await resolveTargetUser(req.body);
   if (!targetUser) {
     return res.status(404).json({ message: 'Target friend not found' });
   }
 
-  const isFriend = await ensureFriends(req.user._id, targetUser._id);
+  const isFriend = ensureFriends(me, targetUser._id);
   if (!isFriend) {
     return res.status(403).json({ message: 'You can only assign reminders to friends' });
   }
 
-  const { title, notes = '', date, time = '' } = req.body;
-  if (!title || !date) {
-    return res.status(400).json({ message: 'title and date are required' });
+  const { title, notes = '', date } = req.body;
+  const time = String(req.body.time || '').trim();
+  if (!title || !date || !time) {
+    return res.status(400).json({ message: 'title, date and time are required' });
   }
 
   const assignment = await AssignmentRequest.create({
-    fromUser: req.user._id,
+    fromUser: me._id,
     toUser: targetUser._id,
     itemType: 'reminder',
     title,
@@ -95,7 +99,7 @@ router.get('/incoming', async (req, res) => {
   }
 
   const incomingQuery = {
-    toUser: req.user._id,
+    toUser: res.locals.currentUser._id,
   };
   if (requestedStatus !== 'all') {
     incomingQuery.status = requestedStatus;
@@ -118,7 +122,7 @@ router.get('/outgoing', async (req, res) => {
   }
 
   const outgoingQuery = {
-    fromUser: req.user._id,
+    fromUser: res.locals.currentUser._id,
   };
   if (requestedStatus !== 'all') {
     outgoingQuery.status = requestedStatus;
@@ -141,7 +145,7 @@ router.patch('/:assignmentId/respond', async (req, res) => {
 
   const assignment = await AssignmentRequest.findOne({
     _id: req.params.assignmentId,
-    toUser: req.user._id,
+    toUser: res.locals.currentUser._id,
     status: 'pending',
   });
 
@@ -160,7 +164,7 @@ router.patch('/:assignmentId/respond', async (req, res) => {
         date: assignment.date,
         time: assignment.time,
         status: 'pending',
-        owner: req.user._id,
+        owner: res.locals.currentUser._id,
         createdBy: assignment.fromUser,
       });
     } else {
@@ -169,7 +173,7 @@ router.patch('/:assignmentId/respond', async (req, res) => {
         notes: assignment.notes,
         date: assignment.date,
         time: assignment.time,
-        owner: req.user._id,
+        owner: res.locals.currentUser._id,
         createdBy: assignment.fromUser,
       });
     }
