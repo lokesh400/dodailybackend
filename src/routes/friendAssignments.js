@@ -6,6 +6,10 @@ const User = require('../models/User');
 const Task = require('../models/Task');
 const Reminder = require('../models/Reminder');
 const AssignmentRequest = require('../models/AssignmentRequest');
+const {
+  pruneInvalidPushTokens,
+  sendPushNotificationToUser,
+} = require('../utils/pushNotifications');
 
 const router = express.Router();
 
@@ -57,6 +61,18 @@ router.post('/task', async (req, res) => {
     time,
   });
 
+  try {
+    const invalidTokens = await sendPushNotificationToUser(targetUser, {
+      title: 'New Planner Request',
+      body: `${me.displayName || me.username} sent you a planner for ${date} at ${time}.`,
+      data: {
+        notificationType: 'incoming-planner-request',
+        assignmentId: String(assignment._id),
+      },
+    });
+    await pruneInvalidPushTokens(User, targetUser._id, invalidTokens);
+  } catch (e) { /* ignore push errors */ }
+
   return res.status(201).json(assignment);
 });
 
@@ -87,6 +103,18 @@ router.post('/reminder', async (req, res) => {
     date,
     time,
   });
+
+  try {
+    const invalidTokens = await sendPushNotificationToUser(targetUser, {
+      title: 'New Reminder Request',
+      body: `${me.displayName || me.username} sent you a reminder for ${date} at ${time}.`,
+      data: {
+        notificationType: 'incoming-reminder-request',
+        assignmentId: String(assignment._id),
+      },
+    });
+    await pruneInvalidPushTokens(User, targetUser._id, invalidTokens);
+  } catch (e) { /* ignore push errors */ }
 
   return res.status(201).json(assignment);
 });
@@ -138,6 +166,7 @@ router.get('/outgoing', async (req, res) => {
 });
 
 router.patch('/:assignmentId/respond', async (req, res) => {
+  const me = res.locals.currentUser;
   const action = req.body.action;
   if (!['approve', 'reject'].includes(action)) {
     return res.status(400).json({ message: 'action must be approve or reject' });
@@ -153,6 +182,8 @@ router.patch('/:assignmentId/respond', async (req, res) => {
     return res.status(404).json({ message: 'Assignment request not found' });
   }
 
+  const fromUser = await User.findById(assignment.fromUser);
+
   if (action === 'approve') {
     assignment.status = 'approved';
     await assignment.save();
@@ -164,7 +195,7 @@ router.patch('/:assignmentId/respond', async (req, res) => {
         date: assignment.date,
         time: assignment.time,
         status: 'pending',
-        owner: res.locals.currentUser._id,
+        owner: me._id,
         createdBy: assignment.fromUser,
       });
     } else {
@@ -173,13 +204,43 @@ router.patch('/:assignmentId/respond', async (req, res) => {
         notes: assignment.notes,
         date: assignment.date,
         time: assignment.time,
-        owner: res.locals.currentUser._id,
+        owner: me._id,
         createdBy: assignment.fromUser,
       });
     }
+
+    try {
+      const invalidTokens = await sendPushNotificationToUser(fromUser, {
+        title: assignment.itemType === 'reminder' ? 'Reminder Approved' : 'Planner Approved',
+        body: `${me.displayName || me.username} approved your ${assignment.itemType}.`,
+        data: {
+          notificationType:
+            assignment.itemType === 'reminder'
+              ? 'incoming-reminder-request-approved'
+              : 'incoming-planner-request-approved',
+          assignmentId: String(assignment._id),
+        },
+      });
+      await pruneInvalidPushTokens(User, fromUser?._id, invalidTokens);
+    } catch (e) { /* ignore push errors */ }
   } else {
     assignment.status = 'rejected';
     await assignment.save();
+
+    try {
+      const invalidTokens = await sendPushNotificationToUser(fromUser, {
+        title: assignment.itemType === 'reminder' ? 'Reminder Rejected' : 'Planner Rejected',
+        body: `${me.displayName || me.username} rejected your ${assignment.itemType}.`,
+        data: {
+          notificationType:
+            assignment.itemType === 'reminder'
+              ? 'incoming-reminder-request-rejected'
+              : 'incoming-planner-request-rejected',
+          assignmentId: String(assignment._id),
+        },
+      });
+      await pruneInvalidPushTokens(User, fromUser?._id, invalidTokens);
+    } catch (e) { /* ignore push errors */ }
   }
 
   return res.json({ message: `Assignment ${assignment.status}` });

@@ -4,6 +4,10 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const isAuthenticated = require("../middleware/isAuthenticated");
 const sendBrevoMail = require("../utils/sendBrevoMail");
+const {
+  isExpoPushToken,
+  normalizePushToken,
+} = require("../utils/pushNotifications");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "verify-secret";
@@ -14,6 +18,13 @@ const VERIFY_EMAIL_URL_BASE =
   process.env.VERIFY_EMAIL_URL_BASE ||
   `${SERVER_PUBLIC_URL}/api/auth/user/verify/user`;
 const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || "dodaily.sid";
+const RESET_PASSWORD_SECRET =
+  process.env.RESET_PASSWORD_SECRET || JWT_SECRET;
+const RESET_PASSWORD_TOKEN_TTL =
+  process.env.RESET_PASSWORD_TOKEN_TTL || "1h";
+const RESET_PASSWORD_URL_BASE =
+  process.env.RESET_PASSWORD_URL_BASE ||
+  `${SERVER_PUBLIC_URL}/api/auth/reset-password`;
 
 function formatAuthUser(user) {
   return {
@@ -23,6 +34,90 @@ function formatAuthUser(user) {
     email: user.email || "",
     verified: Boolean(user.verified),
   };
+}
+
+function getResetRequestIdentifier(body = {}) {
+  const usernameOrEmail = String(body.usernameOrEmail || "").trim();
+  const username = String(body.username || "").trim();
+  const email = String(body.email || "").trim().toLowerCase();
+
+  if (usernameOrEmail) {
+    return usernameOrEmail;
+  }
+
+  if (username) {
+    return username;
+  }
+
+  if (email) {
+    return email;
+  }
+
+  return "";
+}
+
+function isEmailIdentifier(identifier) {
+  return identifier.includes("@");
+}
+
+function buildResetPasswordToken(userId) {
+  return jwt.sign({ id: userId, purpose: "password-reset" }, RESET_PASSWORD_SECRET, {
+    expiresIn: RESET_PASSWORD_TOKEN_TTL,
+  });
+}
+
+function resetPasswordMailHtml({ users, linksByUserId }) {
+  const rows = users
+    .map((user) => {
+      const link = linksByUserId.get(String(user._id));
+      return `<tr>
+        <td style="padding:12px;border:1px solid #e7eceb;"><strong>${user.username}</strong></td>
+        <td style="padding:12px;border:1px solid #e7eceb;">${user.displayName || "-"}</td>
+        <td style="padding:12px;border:1px solid #e7eceb;"><a href="${link}" style="color:#0d7a76;font-weight:600;">Reset password</a></td>
+      </tr>`;
+    })
+    .join("");
+
+  return `<div style="font-family:sans-serif;line-height:1.5;color:#1d2b2a;">
+    <h2 style="margin:0 0 10px;">Reset your DoDaily password</h2>
+    <p style="margin:0 0 16px;">We received a password reset request for this email address.</p>
+    <p style="margin:0 0 16px;">This email is linked to ${
+      users.length
+    } account${users.length > 1 ? "s" : ""}. Use the right link below:</p>
+    <table style="border-collapse:collapse;width:100%;max-width:760px;margin:0 0 16px;">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:12px;border:1px solid #e7eceb;background:#f4f7f6;">Username</th>
+          <th style="text-align:left;padding:12px;border:1px solid #e7eceb;background:#f4f7f6;">Display name</th>
+          <th style="text-align:left;padding:12px;border:1px solid #e7eceb;background:#f4f7f6;">Reset link</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p style="margin:0 0 12px;font-size:13px;color:#4f6664;">Each link expires soon for security.</p>
+    <p style="margin:0;font-size:12px;color:#7a8785;">If you did not request this, you can ignore this email.</p>
+  </div>`;
+}
+
+function shouldRenderHtml(req) {
+  const contentType = String(req.headers["content-type"] || "");
+  const accept = String(req.headers.accept || "");
+  return (
+    contentType.includes("application/x-www-form-urlencoded") ||
+    accept.includes("text/html")
+  );
+}
+
+async function applyNewPassword(user, password) {
+  await new Promise((resolve, reject) => {
+    user.setPassword(password, (error) => {
+      if (error) {
+        return reject(error);
+      }
+
+      return resolve();
+    });
+  });
 }
 // Send verification email
 router.post("/send-verification", isAuthenticated, async (req, res, next) => {
@@ -85,6 +180,155 @@ router.get("/user/verify/user/:token", async (req, res) => {
     return res
       .status(400)
       .send("<h2>Invalid or expired verification link.</h2>");
+  }
+});
+
+router.post(["/forgot-password", "/request-password-reset"], async (req, res, next) => {
+  try {
+    const identifier = getResetRequestIdentifier(req.body);
+
+    if (!identifier) {
+      return res.status(400).json({ message: "Username or email is required" });
+    }
+
+    const emailMode = isEmailIdentifier(identifier);
+    let targetUsers = [];
+    let recipientEmail = "";
+
+    if (emailMode) {
+      recipientEmail = identifier.toLowerCase();
+      targetUsers = await User.find({ email: recipientEmail }).select(
+        "_id username displayName email",
+      );
+    } else {
+      const user = await User.findOne({ username: identifier.toLowerCase() }).select(
+        "_id username displayName email",
+      );
+
+      if (user?.email) {
+        targetUsers = [user];
+        recipientEmail = user.email;
+      }
+    }
+
+    if (targetUsers.length > 0 && recipientEmail) {
+      const linksByUserId = new Map();
+
+      for (const user of targetUsers) {
+        const token = buildResetPasswordToken(user._id);
+        linksByUserId.set(
+          String(user._id),
+          `${RESET_PASSWORD_URL_BASE}/${encodeURIComponent(token)}`,
+        );
+      }
+
+      await sendBrevoMail({
+        to: recipientEmail,
+        subject: "Reset your DoDaily password",
+        htmlContent: resetPasswordMailHtml({ users: targetUsers, linksByUserId }),
+      });
+    }
+
+    return res.json({
+      message:
+        "If the account exists, password reset instructions have been sent.",
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/reset-password/:token", async (req, res) => {
+  try {
+    const { token } = req.params;
+    const payload = jwt.verify(token, RESET_PASSWORD_SECRET);
+
+    if (payload.purpose !== "password-reset") {
+      return res.status(400).send("<h2>Invalid reset token.</h2>");
+    }
+
+    const user = await User.findById(payload.id).select("username displayName");
+
+    if (!user) {
+      return res.status(404).send("<h2>User not found.</h2>");
+    }
+
+    return res.render("reset-password", {
+      token,
+      username: user.username,
+      displayName: user.displayName || "",
+      error: "",
+      success: "",
+      actionUrl: `/api/auth/reset-password/${encodeURIComponent(token)}`,
+    });
+  } catch (error) {
+    return res.status(400).send("<h2>Invalid or expired reset link.</h2>");
+  }
+});
+
+router.post("/reset-password/:token", async (req, res, next) => {
+  const wantsHtml = shouldRenderHtml(req);
+  const { token } = req.params;
+  const password = String(req.body.password || "");
+  const confirmPassword = String(req.body.confirmPassword || "");
+
+  const sendError = (statusCode, message, username = "", displayName = "") => {
+    if (wantsHtml) {
+      return res.status(statusCode).render("reset-password", {
+        token,
+        username,
+        displayName,
+        error: message,
+        success: "",
+        actionUrl: `/api/auth/reset-password/${encodeURIComponent(token)}`,
+      });
+    }
+
+    return res.status(statusCode).json({ message });
+  };
+
+  try {
+    const payload = jwt.verify(token, RESET_PASSWORD_SECRET);
+
+    if (payload.purpose !== "password-reset") {
+      return sendError(400, "Invalid reset token");
+    }
+
+    const user = await User.findById(payload.id);
+
+    if (!user) {
+      return sendError(404, "User not found");
+    }
+
+    if (!password || !confirmPassword) {
+      return sendError(400, "Password and confirmPassword are required", user.username, user.displayName || "");
+    }
+
+    if (password !== confirmPassword) {
+      return sendError(400, "Passwords do not match", user.username, user.displayName || "");
+    }
+
+    await applyNewPassword(user, password);
+    await user.save();
+
+    if (wantsHtml) {
+      return res.render("reset-password", {
+        token,
+        username: user.username,
+        displayName: user.displayName || "",
+        error: "",
+        success: "Your password has been reset successfully. You can close this page now.",
+        actionUrl: `/api/auth/reset-password/${encodeURIComponent(token)}`,
+      });
+    }
+
+    return res.json({ message: "Password reset successful" });
+  } catch (error) {
+    if (error.name === "TokenExpiredError" || error.name === "JsonWebTokenError") {
+      return sendError(400, "Invalid or expired reset token");
+    }
+
+    return next(error);
   }
 });
 
@@ -219,6 +463,42 @@ router.patch("/me", isAuthenticated, async (req, res, next) => {
     await user.save();
 
     return res.json(formatAuthUser(user));
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/push-token", isAuthenticated, async (req, res, next) => {
+  try {
+    const pushToken = normalizePushToken(req.body.pushToken);
+
+    if (!isExpoPushToken(pushToken)) {
+      return res.status(400).json({ message: "A valid Expo push token is required" });
+    }
+
+    await User.findByIdAndUpdate(req.user._id, {
+      $addToSet: { pushTokens: pushToken },
+    });
+
+    return res.json({ message: "Push token saved" });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/push-token", isAuthenticated, async (req, res, next) => {
+  try {
+    const pushToken = normalizePushToken(req.body.pushToken);
+
+    if (!pushToken) {
+      return res.status(400).json({ message: "pushToken is required" });
+    }
+
+    await User.findByIdAndUpdate(req.user._id, {
+      $pull: { pushTokens: pushToken },
+    });
+
+    return res.json({ message: "Push token removed" });
   } catch (error) {
     return next(error);
   }

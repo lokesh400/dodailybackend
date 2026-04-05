@@ -8,6 +8,7 @@ const connectMongo = require('connect-mongo');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const passport = require('passport');
+const path = require('path');
 
 const User = require('./src/models/User');
 const authRoutes = require('./src/routes/auth');
@@ -54,6 +55,9 @@ app.use(
 );
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'src', 'views'));
 app.use(
   session({
     name: SESSION_COOKIE_NAME,

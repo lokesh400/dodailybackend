@@ -3,3 +3,5 @@ node_modules/
 
 # Local env files
 .env
+
+.codex

@@ -6,6 +6,10 @@ const User = require('../models/User');
 const FriendRequest = require('../models/FriendRequest');
 const AssignmentRequest = require('../models/AssignmentRequest');
 const sendBrevoMail = require('../utils/sendBrevoMail');
+const {
+  pruneInvalidPushTokens,
+  sendPushNotificationToUser,
+} = require('../utils/pushNotifications');
 
 const router = express.Router();
 
@@ -73,15 +77,28 @@ router.post('/request', async (req, res) => {
     try {
       await sendBrevoMail({
         to: targetUser.email,
-          subject: 'New Friend Request on DoDaily',
-          htmlContent: `<div style="font-family:sans-serif;text-align:center;padding:2em;">
+        subject: 'New Friend Request on DoDaily',
+        htmlContent: `<div style="font-family:sans-serif;text-align:center;padding:2em;">
           <h2>New Friend Request</h2>
           <p>${me.displayName} (@${me.username}) sent you a friend request on DoDaily.</p>
           <p>Open DoDaily to approve or reject the request.</p>
-        </div>`
+        </div>`,
       });
     } catch (e) { /* ignore email errors */ }
   }
+
+  try {
+    const invalidTokens = await sendPushNotificationToUser(targetUser, {
+      title: 'New Friend Request',
+      body: `${me.displayName || me.username} sent you a friend request.`,
+      data: {
+        notificationType: 'friend-request',
+        requestId: String(friendRequest._id),
+      },
+    });
+    await pruneInvalidPushTokens(User, targetUser._id, invalidTokens);
+  } catch (e) { /* ignore push errors */ }
+
   return res.status(201).json(friendRequest);
 });
 
@@ -171,9 +188,36 @@ router.patch('/requests/:requestId/respond', async (req, res) => {
         });
       } catch (e) { /* ignore email errors */ }
     }
+
+    try {
+      const invalidTokens = await sendPushNotificationToUser(fromUser, {
+        title: 'Friend Request Accepted',
+        body: `${toUser.displayName || toUser.username} accepted your friend request.`,
+        data: {
+          notificationType: 'friend-request-accepted',
+          requestId: String(friendRequest._id),
+        },
+      });
+      await pruneInvalidPushTokens(User, fromUser._id, invalidTokens);
+    } catch (e) { /* ignore push errors */ }
   } else {
     friendRequest.status = 'rejected';
     await friendRequest.save();
+
+    const fromUser = await User.findById(friendRequest.fromUser);
+    const toUser = await User.findById(friendRequest.toUser);
+
+    try {
+      const invalidTokens = await sendPushNotificationToUser(fromUser, {
+        title: 'Friend Request Rejected',
+        body: `${toUser.displayName || toUser.username} rejected your friend request.`,
+        data: {
+          notificationType: 'friend-request-rejected',
+          requestId: String(friendRequest._id),
+        },
+      });
+      await pruneInvalidPushTokens(User, fromUser._id, invalidTokens);
+    } catch (e) { /* ignore push errors */ }
   }
 
   return res.json({ message: `Friend request ${friendRequest.status}` });

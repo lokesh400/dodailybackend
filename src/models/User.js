@@ -24,6 +24,12 @@ const userSchema = new mongoose.Schema(
         ref: 'User',
       },
     ],
+    pushTokens: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
   },
   {
     timestamps: true,
