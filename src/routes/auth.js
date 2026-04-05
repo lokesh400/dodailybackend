@@ -11,20 +11,12 @@ const {
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "verify-secret";
-const SERVER_PUBLIC_URL = (
-  process.env.SERVER_PUBLIC_URL || "https://dodaily.onrender.com"
-).replace(/\/+$/, "");
-const VERIFY_EMAIL_URL_BASE =
-  process.env.VERIFY_EMAIL_URL_BASE ||
-  `${SERVER_PUBLIC_URL}/api/auth/user/verify/user`;
-const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || "dodaily.sid";
-const RESET_PASSWORD_SECRET =
-  process.env.RESET_PASSWORD_SECRET || JWT_SECRET;
-const RESET_PASSWORD_TOKEN_TTL =
-  process.env.RESET_PASSWORD_TOKEN_TTL || "1h";
-const RESET_PASSWORD_URL_BASE =
-  process.env.RESET_PASSWORD_URL_BASE ||
-  `${SERVER_PUBLIC_URL}/api/auth/reset-password`;
+const SERVER_PUBLIC_URL = "https://dodaily.onrender.com"
+const VERIFY_EMAIL_URL_BASE =`${SERVER_PUBLIC_URL}/api/auth/user/verify/user`;
+const SESSION_COOKIE_NAME = "dodaily.sid";
+const RESET_PASSWORD_SECRET = JWT_SECRET;
+const RESET_PASSWORD_TOKEN_TTL = "1h";
+const RESET_PASSWORD_URL_BASE = `${SERVER_PUBLIC_URL}/api/auth/reset-password`;
 
 function formatAuthUser(user) {
   return {
